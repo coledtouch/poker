@@ -3,5 +3,6 @@
   "main": "dist/worker.js",
   "compatibility_date": "2026-11-01",
   "workers_dev": true,
-  "preview_urls": false
+  "preview_urls": false,
+  "routes": [{ "pattern": "sunrise.ciprari.ai", "custom_domain": true }]
 }

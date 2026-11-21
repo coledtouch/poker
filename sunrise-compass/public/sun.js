@@ -64,5 +64,27 @@
     }
     return r;
   }
-  global.Sun = { position, times };
+  // ---- Moon ----
+  function moonCoords(d) {
+    const L = rad * (218.316 + 13.176396 * d), M = rad * (134.963 + 13.064993 * d), F = rad * (93.272 + 13.229350 * d);
+    const l = L + rad * 6.289 * Math.sin(M), b = rad * 5.128 * Math.sin(F), dt = 385001 - 20905 * Math.cos(M);
+    return { ra: rightAscension(l, b), dec: declination(l, b), dist: dt };
+  }
+  function moonPosition(date, lat, lng) {
+    const lw = rad * -lng, phi = rad * lat, d = toDays(date);
+    const c = moonCoords(d), H = siderealTime(d, lw) - c.ra;
+    let alt = altitude(H, phi, c.dec) / rad;
+    if (alt > -2) alt += 1.02 / Math.tan(rad * (alt + 10.3 / (alt + 5.11))) / 60;
+    return { azimuth: (((azimuth(H, phi, c.dec) / rad + 180) % 360) + 360) % 360, altitude: alt };
+  }
+  function moonIllumination(date) {
+    const d = toDays(date), s = sunCoords(d), m = moonCoords(d), sdist = 149598000;
+    const phi = Math.acos(Math.sin(s.dec) * Math.sin(m.dec) + Math.cos(s.dec) * Math.cos(m.dec) * Math.cos(s.ra - m.ra));
+    const inc = Math.atan2(sdist * Math.sin(phi), m.dist - sdist * Math.cos(phi));
+    const angle = Math.atan2(Math.cos(s.dec) * Math.sin(s.ra - m.ra), Math.sin(s.dec) * Math.cos(m.dec) - Math.cos(s.dec) * Math.sin(m.dec) * Math.cos(s.ra - m.ra));
+    return { fraction: (1 + Math.cos(inc)) / 2, phase: 0.5 + 0.5 * inc * (angle < 0 ? -1 : 1) / PI };
+  }
+  // Local sidereal time in radians (for rotating the star field)
+  const lst = (date, lng) => siderealTime(toDays(date), rad * -lng);
+  global.Sun = { position, times, moonPosition, moonIllumination, lst };
 })(self);

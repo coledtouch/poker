@@ -43,7 +43,7 @@
 
   // ---------- sky renderer ----------
   let sky = null;
-  try { sky = new Sky($('sky'), 0.5); $('skyFallback').hidden = true; } catch (e) { $('sky').hidden = true; }
+  try { sky = new Sky($('sky'), 0.65); $('skyFallback').hidden = true; } catch (e) { $('sky').hidden = true; }
 
   // ---------- orientation ----------
   function setFromEuler(alpha, beta, gamma) {
@@ -303,11 +303,12 @@
     ctx.font = `500 12px ${FONT}`;
     const w2 = lines[1] ? ctx.measureText(lines[1]).width : 0;
     const w = Math.max(w1, w2) + 22, h = lines[1] ? 42 : 26;
+    const ax = x; x = clamp(x, w / 2 + 8, W - w / 2 - 8);
     const bx = x - w / 2, by = y - h;
     ctx.fillStyle = 'rgba(12,14,28,.62)';
     ctx.beginPath(); ctx.roundRect(bx, by, w, h, 12); ctx.fill();
     ctx.strokeStyle = accent; ctx.globalAlpha = alpha * .7; ctx.lineWidth = 1; ctx.stroke(); ctx.globalAlpha = alpha;
-    ctx.beginPath(); ctx.moveTo(x - 6, by + h); ctx.lineTo(x, by + h + 7); ctx.lineTo(x + 6, by + h); ctx.fillStyle = 'rgba(12,14,28,.62)'; ctx.fill();
+    const tx = clamp(ax, bx + 14, bx + w - 14); ctx.beginPath(); ctx.moveTo(tx - 6, by + h); ctx.lineTo(tx, by + h + 7); ctx.lineTo(tx + 6, by + h); ctx.fillStyle = 'rgba(12,14,28,.62)'; ctx.fill();
     text(lines[0], x, by + 14, { color: accent, size: 14, weight: 700, shadow: false });
     if (lines[1]) text(lines[1], x, by + 30, { color: 'rgba(255,255,255,.9)', size: 12, weight: 500, shadow: false });
     ctx.restore();
@@ -380,10 +381,112 @@
     ctx.restore();
   }
 
+  // ---------- real stars, constellations, shooting stars ----------
+  const starByName = {};
+  for (const s of self.STARS || []) starByName[s[0]] = s;
+  const bvColor = bv => bv < 0 ? [190, 210, 255] : bv < 0.4 ? [235, 240, 255] : bv < 0.8 ? [255, 246, 228] : bv < 1.3 ? [255, 215, 170] : [255, 170, 120];
+  let meteors = [], nextMeteor = 0;
+  function drawNightSky(tSel, sunAlt, now, dt) {
+    const k = clamp((-sunAlt - 3) / 9, 0, 1);
+    if (k <= 0) return;
+    const pos = {};
+    for (const s of self.STARS) {
+      const h = Sun.equToHor(s[1] * 15 * D2R, s[2] * D2R, tSel, state.lat, state.lng);
+      if (h.altitude < horizonAt(h.azimuth)) continue;
+      const p = project(dirVec(h.azimuth, h.altitude));
+      if (!onScreen(p, -60)) continue;
+      pos[s[0]] = p; p.s = s; p.alt = h.altitude;
+    }
+    // constellation lines + names
+    ctx.save(); ctx.lineWidth = 1; ctx.lineCap = 'round';
+    for (const [name, lines] of self.CONSTELLATIONS) {
+      const asterism = name.includes('Triangle');
+      let cx = 0, cy = 0, n = 0;
+      ctx.beginPath();
+      for (const [a, b] of lines) {
+        const pa = pos[a], pb = pos[b]; if (!pa || !pb) continue;
+        const dx = pb.x - pa.x, dy = pb.y - pa.y, L = Math.hypot(dx, dy) || 1, g = Math.min(8, L * 0.2);
+        ctx.moveTo(pa.x + dx / L * g, pa.y + dy / L * g); ctx.lineTo(pb.x - dx / L * g, pb.y - dy / L * g);
+        cx += pa.x + pb.x; cy += pa.y + pb.y; n += 2;
+      }
+      ctx.setLineDash(asterism ? [2, 6] : []);
+      ctx.strokeStyle = `rgba(150,180,255,${(asterism ? 0.22 : 0.32) * k})`; ctx.stroke();
+      if (n && !asterism) text(name.toUpperCase(), cx / n, cy / n + 4, { color: `rgba(170,195,255,${0.55 * k})`, size: 10, weight: 600 });
+    }
+    ctx.setLineDash([]); ctx.restore();
+    // stars
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (const name in pos) {
+      const p = pos[name], [, , , mag, bv] = p.s;
+      const ext = clamp(p.alt / 10, 0.25, 1); // dimmer near the horizon
+      const tw = 0.82 + 0.18 * Math.sin(now / (160 + (mag * 97 % 90)) + mag * 13) * (1.2 - ext);
+      const b = clamp((3.6 - mag) / 4.2, 0.12, 1.3) * k * ext * tw;
+      const r = 1.2 + 2.6 * clamp((2.5 - mag) / 4, 0, 1);
+      const [cr, cg, cb] = bvColor(bv);
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 5);
+      g.addColorStop(0, `rgba(255,255,255,${Math.min(1, b)})`);
+      g.addColorStop(0.18, `rgba(${cr},${cg},${cb},${0.85 * b})`);
+      g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, r * 5, 0, Math.PI * 2); ctx.fill();
+      if (mag < 0.6) { // diffraction spikes on the brightest stars
+        ctx.strokeStyle = `rgba(${cr},${cg},${cb},${0.35 * b})`; ctx.lineWidth = 1;
+        const L = r * 9 * tw;
+        ctx.beginPath(); ctx.moveTo(p.x - L, p.y); ctx.lineTo(p.x + L, p.y); ctx.moveTo(p.x, p.y - L); ctx.lineTo(p.x, p.y + L); ctx.stroke();
+      }
+    }
+    ctx.restore();
+    for (const name in pos) {
+      const p = pos[name];
+      if (p.s[3] < 1.3 || name === 'Polaris') text(name, p.x + 9, p.y - 9, { color: `rgba(220,230,255,${0.7 * k})`, size: 11, weight: 500, align: 'left' });
+    }
+    // shooting stars
+    if (k > 0.7 && !state.camOn) {
+      if (!nextMeteor) nextMeteor = now + 4000 + Math.random() * 8000;
+      if (now > nextMeteor) {
+        const a = (200 + Math.random() * 140) * D2R;
+        meteors.push({ x: W * (0.15 + Math.random() * 0.7), y: H * (0.1 + Math.random() * 0.35), vx: Math.cos(a) * 700, vy: Math.abs(Math.sin(a)) * 380 + 120, life: 0, max: 0.6 + Math.random() * 0.5 });
+        nextMeteor = now + 6000 + Math.random() * 12000;
+      }
+    }
+    meteors = meteors.filter(m => (m.life += dt) < m.max);
+    for (const m of meteors) {
+      m.x += m.vx * dt; m.y += m.vy * dt;
+      const f = Math.sin(Math.PI * m.life / m.max), tl = 0.16;
+      const g = ctx.createLinearGradient(m.x, m.y, m.x - m.vx * tl, m.y - m.vy * tl);
+      g.addColorStop(0, `rgba(255,255,255,${0.95 * f})`); g.addColorStop(0.3, `rgba(190,215,255,${0.5 * f})`); g.addColorStop(1, 'rgba(160,190,255,0)');
+      ctx.strokeStyle = g; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(m.x - m.vx * tl, m.y - m.vy * tl); ctx.stroke();
+    }
+  }
+  function lensFlare(sx, sy, strength, now) {
+    if (strength <= 0.01) return;
+    const cx = W / 2, cy = H / 2, dx = cx - sx, dy = cy - sy;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    // starburst
+    ctx.translate(sx, sy); ctx.rotate(now / 20000);
+    for (let i = 0; i < 12; i++) {
+      const L = (i % 2 ? 70 : 130) * strength * (0.85 + 0.15 * Math.sin(now / 700 + i));
+      const g = ctx.createLinearGradient(0, 0, L, 0);
+      g.addColorStop(0, `rgba(255,240,200,${0.35 * strength})`); g.addColorStop(1, 'rgba(255,220,160,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0, -1.5); ctx.lineTo(L, 0); ctx.lineTo(0, 1.5); ctx.fill();
+      ctx.rotate(Math.PI / 6);
+    }
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // ghosts along the line through the screen centre
+    for (const [t, r, c] of [[0.45, 10, '255,200,120'], [0.8, 26, '160,255,200'], [1.15, 8, '255,170,90'], [1.45, 46, '140,170,255'], [1.8, 18, '255,140,190']]) {
+      const x = sx + dx * t, y = sy + dy * t;
+      const g = ctx.createRadialGradient(x, y, r * 0.2, x, y, r);
+      g.addColorStop(0, `rgba(${c},${0.10 * strength})`); g.addColorStop(0.75, `rgba(${c},${0.06 * strength})`); g.addColorStop(1, `rgba(${c},0)`);
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   // ---------- sky view overlay ----------
   function drawSkyOverlay(day, tSel, sunSel, now) {
     const intro = ease((now - state.shownAt) / 1600);
     const hdg = cameraHeading();
+    drawNightSky(tSel, sunSel.altitude, now, lastDt);
 
     // horizon (terrain-following) with compass ticks
     const hzPts = []; for (let a = 0; a <= 360; a += 1) hzPts.push(dirVec(a, horizonAt(a)));
@@ -477,6 +580,7 @@
     if (onScreen(sp, -80)) {
       const r = Math.max(9, 0.27 * D2R * focal() * 2.2);
       const live = state.scrubMin == null && state.dayOffset === 0;
+      if (sunUp && onScreen(sp, 0)) lensFlare(sp.x, sp.y, clamp((sunSel.altitude + 1) / 8, 0, 1), now);
       if (state.camOn || !sky) sunGlow(sp.x, sp.y, r * (1 + 0.06 * Math.sin(now / 500)), sunUp ? 1 : 0.4);
       else {
         ctx.beginPath(); ctx.arc(sp.x, sp.y, r * 2.2 + 3 * Math.sin(now / 450), 0, Math.PI * 2);
@@ -727,13 +831,14 @@
   }
 
   // ---------- main loop ----------
-  let lastFrame = performance.now();
+  let lastFrame = performance.now(), lastDt = 0.016;
   const introT0 = performance.now();
   function eqMatrix(date) {
     const phi = state.lat * D2R, th = Sun.lst(date, state.lng);
-    const P = [0, Math.cos(phi), Math.sin(phi)], A = [0, -Math.sin(phi), Math.cos(phi)], B = cross(P, A);
-    const Xc = A.map((v, i) => v * Math.cos(th) + B[i] * Math.sin(th));
-    const Yc = A.map((v, i) => -v * Math.sin(th) + B[i] * Math.cos(th));
+    // true equatorial frame: x -> RA 0h, y -> RA 6h, z -> celestial pole (used for the Milky Way)
+    const P = [0, Math.cos(phi), Math.sin(phi)], A = [0, -Math.sin(phi), Math.cos(phi)], Wd = [-1, 0, 0];
+    const Xc = A.map((v, i) => v * Math.cos(th) + Wd[i] * Math.sin(th));
+    const Yc = A.map((v, i) => v * Math.sin(th) - Wd[i] * Math.cos(th));
     const e = v => [v[0], v[2], v[1]];
     const x = e(Xc), y = e(Yc), z = e(P);
     return new Float32Array([x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]]);
@@ -749,15 +854,17 @@
       cloud = clamp(c.cloud_cover / 100, 0, 1) * 0.95;
       fog = c.weather_code === 45 || c.weather_code === 48 ? 0.55 : clamp(1 - (c.visibility ?? 20000) / 12000, 0, 0.5);
     }
+    const mp = Sun.moonPosition(date, state.lat, state.lng);
     sky.render({
       right: b.right, up: b.up, fwd: b.fwd, focal: focal(),
+      moon: dirVec(mp.azimuth, mp.altitude), moonFrac: Sun.moonIllumination(date).fraction,
       sun: dirVec(sunPos.azimuth, sunPos.altitude), time: now / 1000,
       cloud: extra.cloud ?? cloud, fog, wind, eq: eqMatrix(date), dim: extra.dim ?? 1,
     });
   }
   function frame(now) {
     requestAnimationFrame(frame);
-    const dt = Math.min(0.05, (now - lastFrame) / 1000); lastFrame = now;
+    const dt = Math.min(0.05, (now - lastFrame) / 1000); lastFrame = now; lastDt = dt;
     ctx.clearRect(0, 0, W, H);
 
     if (!state.live) { // intro: a slow sunrise over your own horizon

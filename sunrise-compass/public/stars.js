@@ -1,0 +1,37 @@
+'use strict';
+// Bright stars: [name, RA hours, Dec deg, magnitude, B-V colour index (approx)]
+self.STARS = [
+  ['Sirius', 6.752, -16.72, -1.46, 0.0], ['Canopus', 6.399, -52.70, -0.74, 0.15], ['Arcturus', 14.261, 19.18, -0.05, 1.23],
+  ['Vega', 18.616, 38.78, 0.03, 0.0], ['Capella', 5.278, 46.00, 0.08, 0.8], ['Rigel', 5.242, -8.20, 0.13, -0.03],
+  ['Procyon', 7.655, 5.22, 0.34, 0.42], ['Betelgeuse', 5.919, 7.41, 0.5, 1.85], ['Achernar', 1.629, -57.24, 0.46, -0.16],
+  ['Hadar', 14.064, -60.37, 0.61, -0.23], ['Altair', 19.846, 8.87, 0.76, 0.22], ['Acrux', 12.443, -63.10, 0.77, -0.24],
+  ['Aldebaran', 4.599, 16.51, 0.85, 1.54], ['Antares', 16.490, -26.43, 0.96, 1.83], ['Spica', 13.420, -11.16, 0.97, -0.23],
+  ['Pollux', 7.755, 28.03, 1.14, 1.0], ['Fomalhaut', 22.961, -29.62, 1.16, 0.09], ['Deneb', 20.690, 45.28, 1.25, 0.09],
+  ['Mimosa', 12.795, -59.69, 1.25, -0.23], ['Regulus', 10.139, 11.97, 1.35, -0.11], ['Adhara', 6.977, -28.97, 1.5, -0.21],
+  ['Castor', 7.577, 31.89, 1.58, 0.03], ['Shaula', 17.560, -37.10, 1.62, -0.22], ['Gacrux', 12.519, -57.11, 1.63, 1.6],
+  ['Bellatrix', 5.419, 6.35, 1.64, -0.22], ['Elnath', 5.438, 28.61, 1.65, -0.13], ['Alnilam', 5.604, -1.20, 1.69, -0.18],
+  ['Alnitak', 5.679, -1.94, 1.77, -0.21], ['Mintaka', 5.533, -0.30, 2.23, -0.22], ['Saiph', 5.796, -9.67, 2.09, -0.18],
+  ['Alioth', 12.900, 55.96, 1.77, -0.02], ['Dubhe', 11.062, 61.75, 1.79, 1.07], ['Merak', 11.031, 56.38, 2.37, -0.02],
+  ['Phecda', 11.897, 53.69, 2.44, 0.0], ['Megrez', 12.257, 57.03, 3.31, 0.08], ['Mizar', 13.399, 54.93, 2.23, 0.02],
+  ['Alkaid', 13.792, 49.31, 1.86, -0.19], ['Polaris', 2.530, 89.26, 1.98, 0.6], ['Mirfak', 3.405, 49.86, 1.79, 0.48],
+  ['Alpheratz', 0.140, 29.09, 2.06, -0.11], ['Schedar', 0.675, 56.54, 2.24, 1.17], ['Caph', 0.153, 59.15, 2.27, 0.34],
+  ['Navi', 0.945, 60.72, 2.47, -0.15], ['Ruchbah', 1.430, 60.24, 2.68, 0.13], ['Segin', 1.907, 63.67, 3.37, -0.15],
+  ['Hamal', 2.120, 23.46, 2.0, 1.15], ['Denebola', 11.818, 14.57, 2.13, 0.09], ['Algol', 3.136, 40.96, 2.1, -0.05],
+  ['Alphard', 9.460, -8.66, 1.98, 1.44], ['Kochab', 14.845, 74.16, 2.08, 1.47], ['Rasalhague', 17.582, 12.56, 2.07, 0.15],
+  ['Nunki', 18.921, -26.30, 2.05, -0.13], ['Albireo', 19.512, 27.96, 3.08, 1.1], ['Sadr', 20.370, 40.26, 2.23, 0.68],
+  ['Enif', 21.736, 9.88, 2.39, 1.53], ['Markab', 23.079, 15.21, 2.49, -0.04], ['Scheat', 23.063, 28.08, 2.42, 1.67],
+  ['Algenib', 0.221, 15.18, 2.83, -0.23], ['Alcyone', 3.791, 24.11, 2.87, -0.09], ['Gienah', 20.770, 33.97, 2.48, 1.03],
+  ['Delta Cyg', 19.750, 45.13, 2.87, -0.03], ['Mirach', 1.162, 35.62, 2.05, 1.58], ['Almach', 2.065, 42.33, 2.1, 1.37],
+];
+self.CONSTELLATIONS = [
+  ['Orion', [['Betelgeuse', 'Bellatrix'], ['Bellatrix', 'Mintaka'], ['Mintaka', 'Alnilam'], ['Alnilam', 'Alnitak'], ['Alnitak', 'Saiph'], ['Saiph', 'Rigel'], ['Rigel', 'Mintaka'], ['Betelgeuse', 'Alnitak']]],
+  ['Big Dipper', [['Dubhe', 'Merak'], ['Merak', 'Phecda'], ['Phecda', 'Megrez'], ['Megrez', 'Dubhe'], ['Megrez', 'Alioth'], ['Alioth', 'Mizar'], ['Mizar', 'Alkaid']]],
+  ['Cassiopeia', [['Caph', 'Schedar'], ['Schedar', 'Navi'], ['Navi', 'Ruchbah'], ['Ruchbah', 'Segin']]],
+  ['Cygnus', [['Deneb', 'Sadr'], ['Sadr', 'Albireo'], ['Gienah', 'Sadr'], ['Sadr', 'Delta Cyg']]],
+  ['Pegasus', [['Markab', 'Scheat'], ['Scheat', 'Alpheratz'], ['Alpheratz', 'Algenib'], ['Algenib', 'Markab']]],
+  ['Andromeda', [['Alpheratz', 'Mirach'], ['Mirach', 'Almach']]],
+  ['Gemini', [['Castor', 'Pollux']]],
+  ['Summer Triangle', [['Vega', 'Deneb'], ['Deneb', 'Altair'], ['Altair', 'Vega']]],
+  ['Winter Triangle', [['Betelgeuse', 'Sirius'], ['Sirius', 'Procyon'], ['Procyon', 'Betelgeuse']]],
+  ['Southern Cross', [['Acrux', 'Gacrux'], ['Mimosa', 'Gacrux']]],
+];

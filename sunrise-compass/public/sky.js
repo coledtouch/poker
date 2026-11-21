@@ -15,6 +15,8 @@ uniform vec2 uWind;
 uniform mat3 uEq;            // world -> celestial
 uniform sampler2D uHorizon;  // terrain horizon angle by azimuth
 uniform float uDim;
+uniform vec3 uMoon;
+uniform float uMoonFrac;
 #define PI 3.14159265
 #define RP 6371e3
 #define RA 6471e3
@@ -45,15 +47,18 @@ vec3 atmosphere(vec3 r, vec3 pSun) {
     float iH = length(iPos) - RP;
     float odR = exp(-iH / SHR) * iStep, odM = exp(-iH / SHM) * iStep;
     iOdR += odR; iOdM += odM;
-    float jStep = rsi(iPos, pSun, RA).y / 6.0, jTime = 0.0, jOdR = 0.0, jOdM = 0.0;
-    for (int j = 0; j < 6; j++) {
-      vec3 jPos = iPos + pSun * (jTime + jStep * 0.5);
-      float jH = length(jPos) - RP;
-      jOdR += exp(-jH / SHR) * jStep; jOdM += exp(-jH / SHM) * jStep;
-      jTime += jStep;
+    vec2 sh = rsi(iPos, pSun, RP);
+    if (!(sh.x > 0.0 && sh.x < sh.y)) { // not in Earth's shadow
+      float jStep = rsi(iPos, pSun, RA).y / 5.0, jTime = 0.0, jOdR = 0.0, jOdM = 0.0;
+      for (int j = 0; j < 5; j++) {
+        vec3 jPos = iPos + pSun * (jTime + jStep * 0.5);
+        float jH = max(length(jPos) - RP, 0.0);
+        jOdR += exp(-jH / SHR) * jStep; jOdM += exp(-jH / SHM) * jStep;
+        jTime += jStep;
+      }
+      vec3 attn = exp(-(KMIE * (iOdM + jOdM) + KRLH * (iOdR + jOdR)));
+      tR += odR * attn; tM += odM * attn;
     }
-    vec3 attn = exp(-(KMIE * (iOdM + jOdM) + KRLH * (iOdR + jOdR)));
-    tR += odR * attn; tM += odM * attn;
     iTime += iStep;
   }
   return 22.0 * (pR * KRLH * tR + pM * KMIE * tM);
@@ -73,41 +78,83 @@ vec3 stars(vec3 d) {
   vec3 q = (uEq * d) * 160.0;
   vec3 c = floor(q);
   float h = hash(c);
-  if (h < 0.93) return vec3(0.0);
+  if (h < 0.9) return vec3(0.0);
   vec3 o = vec3(hash(c + 3.1), hash(c + 7.7), hash(c + 1.9)) * 0.6 + 0.2;
   float dist = length(q - c - o);
-  float mag = pow((h - 0.93) / 0.07, 6.0);
+  float mag = pow((h - 0.9) / 0.1, 7.0);
   float tw = 0.7 + 0.3 * sin(uTime * (2.0 + 5.0 * hash(c + 9.0)) + h * 60.0);
   vec3 tint = mix(vec3(0.7, 0.8, 1.0), vec3(1.0, 0.85, 0.7), hash(c + 5.0));
-  return tint * smoothstep(0.32, 0.0, dist) * (0.25 + 2.8 * mag) * tw;
+  return tint * smoothstep(0.34, 0.0, dist) * (0.35 + 4.0 * mag) * tw;
+}
+float n3(vec3 x) {
+  vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hash(i), hash(i + vec3(1, 0, 0)), f.x), mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x), mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+float fbm3(vec3 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { v += a * n3(p); p = p * 2.07 + 3.1; a *= 0.5; } return v; }
+const vec3 NGP = vec3(-0.8676, -0.1976, 0.4560);
+const vec3 GC = vec3(-0.0549, -0.8735, -0.4838);
+vec3 milkyWay(vec3 q) {
+  float b = dot(q, NGP);
+  float core = pow(max(dot(q, GC), 0.0), 4.0);
+  float band = exp(-b * b / (0.02 + 0.05 * core));
+  float n = fbm3(q * 7.0);
+  float dust = smoothstep(0.42, 0.8, fbm3(q * 13.0 + 5.0)) * exp(-b * b / (0.004 + 0.01 * core));
+  float i = band * (0.25 + 0.95 * n * n) * (0.4 + 1.6 * core) * (1.0 - 0.8 * dust);
+  float glints = pow(n3(q * 260.0), 18.0) * band * 3.0;
+  return i * mix(vec3(0.5, 0.6, 0.9), vec3(1.0, 0.84, 0.64), core) + glints * vec3(0.9, 0.95, 1.0);
 }
 void main() {
   vec2 px = (vUv - 0.5) * uRes;
   vec3 rd = normalize(uF * uFocal + uR * px.x + uU * px.y);
   vec3 sun = normalize(uSun);
+  float sunAlt = degrees(asin(clamp(sun.y, -1.0, 1.0)));
   float az = atan(rd.x, rd.z) / (2.0 * PI);
-  float hz = texture2D(uHorizon, vec2(fract(az), 0.5)).r * 32.0 - 2.0; // degrees
+  float hz = texture2D(uHorizon, vec2(fract(az), 0.5)).r * 32.0 - 2.0;
   float viewAlt = degrees(asin(clamp(rd.y, -1.0, 1.0)));
   bool ground = viewAlt < hz;
 
   vec3 skyDir = rd; skyDir.y = max(skyDir.y, 0.002); skyDir = normalize(skyDir);
+  float h = skyDir.y;
   vec3 col = atmosphere(skyDir, sun);
-  float night = 1.0 - smoothstep(-0.32, 0.02, sun.y);
-  col *= 1.0 - 0.96 * night;
-  col += vec3(0.0025, 0.004, 0.011) * (0.4 + 0.6 * night) * (1.0 - 0.5 * skyDir.y);
 
-  // light colour for clouds and terrain
+  // ---- twilight: afterglow, blue hour, Earth's shadow & Belt of Venus ----
+  float depth = clamp(-sunAlt / 18.0, 0.0, 1.0);
+  float tw = smoothstep(-19.0, -5.0, sunAlt) * smoothstep(5.0, -1.0, sunAlt);
+  vec2 hd = normalize(rd.xz + vec2(1e-5)), sd2 = normalize(sun.xz + vec2(1e-5));
+  float ca = dot(hd, sd2);
+  float toward = pow(ca * 0.5 + 0.5, 2.5);
+  vec3 glowC = mix(vec3(1.0, 0.42, 0.10), vec3(0.75, 0.18, 0.38), smoothstep(0.1, 0.6, depth));
+  vec3 glow = glowC * exp(-h * (5.0 + 9.0 * depth)) * toward * (1.25 - depth) * 0.85;
+  glow += vec3(1.0, 0.62, 0.25) * exp(-h * 22.0) * pow(toward, 4.0) * (1.0 - depth * 0.8) * 1.5;
+  vec3 blueHour = mix(vec3(0.03, 0.06, 0.20), vec3(0.16, 0.13, 0.33), exp(-h * 3.5)) * (1.0 - depth * 0.75);
+  float anti = pow(max(-ca, 0.0), 1.5);
+  float beltY = 0.06 + depth * 0.25;
+  vec3 venus = vec3(0.8, 0.42, 0.58) * exp(-pow((h - beltY) / 0.07, 2.0)) * anti * (1.0 - depth) * 0.6;
+  float shadowBand = anti * smoothstep(beltY, beltY - 0.05, h);
+  col = mix(col, col * 0.5, shadowBand * tw);
+  col += tw * (glow + blueHour * 0.7 + venus);
+
+  // ---- night ----
+  float nightK = smoothstep(-8.0, -17.0, sunAlt);
+  float moonUp = smoothstep(-0.02, 0.12, uMoon.y) * uMoonFrac;
+  vec3 nightSky = mix(vec3(0.05, 0.06, 0.12), vec3(0.012, 0.018, 0.05), pow(h, 0.45));
+  nightSky += vec3(0.07, 0.06, 0.05) * exp(-h * 14.0) * 0.55;            // airglow / distant town light
+  nightSky += moonUp * (vec3(0.025, 0.045, 0.095) * (1.0 - 0.4 * h) + vec3(0.35, 0.37, 0.42) * pow(max(dot(rd, normalize(uMoon)), 0.0), 60.0) * 0.4);
+  col = mix(col, max(col, nightSky), smoothstep(-2.0, -10.0, sunAlt));
+
   float dayL = smoothstep(-0.16, 0.12, sun.y);
   vec3 sunCol = mix(vec3(1.0, 0.42, 0.22), vec3(1.0, 0.96, 0.9), smoothstep(0.0, 0.4, sun.y));
+  float starVis = smoothstep(-5.0, -15.0, sunAlt) * (1.0 - 0.55 * moonUp) * uStars;
 
   if (!ground) {
-    // sun disc
     float sd = dot(rd, sun);
-    float sunHidden = step(degrees(asin(sun.y)), hz);
+    float sunHidden = step(sunAlt, hz);
     col += sunCol * 40.0 * smoothstep(0.99996, 0.99998, sd) * (1.0 - sunHidden) * smoothstep(-0.02, 0.0, sun.y);
-    // stars
-    col += stars(rd) * uStars * night * smoothstep(0.0, 0.08, rd.y);
-    // clouds
+    vec3 q = uEq * rd;
+    float hzFade = smoothstep(0.0, 0.12, rd.y);
+    if (sunAlt < -10.0) col += milkyWay(q) * 0.11 * smoothstep(-11.0, -18.0, sunAlt) * (1.0 - 0.85 * moonUp) * hzFade * uStars;
+    if (sunAlt < -4.0) col += stars(rd) * starVis * hzFade;
     if (uCloud > 0.01 && rd.y > 0.0) {
       float t = 1.0 / (rd.y + 0.035);
       vec2 uv = rd.xz * t * 0.9 + uWind * uTime;
@@ -116,16 +163,19 @@ void main() {
       float cov = smoothstep(lo, lo + 0.28, n) * smoothstep(0.0, 0.14, rd.y);
       float silver = pow(max(dot(rd, sun), 0.0), 5.0);
       float thick = smoothstep(lo, lo + 0.6, n);
-      vec3 cc = sunCol * dayL * (0.95 + 1.1 * silver) * (1.0 - 0.55 * thick) + col * 0.5 + vec3(0.012, 0.014, 0.02);
+      // clouds catch fiery underlight just after sunset, moonlight at night
+      vec3 under = mix(vec3(1.0, 0.36, 0.2), vec3(0.75, 0.22, 0.4), depth) * tw * (0.6 + 0.8 * toward) * 0.7;
+      vec3 cc = sunCol * dayL * (0.95 + 1.1 * silver) * (1.0 - 0.55 * thick) + under * (1.0 - 0.5 * thick)
+              + col * 0.45 + vec3(0.012, 0.014, 0.02) + moonUp * nightK * vec3(0.05, 0.06, 0.08);
       col = mix(col, cc, cov * 0.92);
     }
   } else {
-    float depth = clamp((hz - viewAlt) * 0.35, 0.0, 1.0);
-    vec3 g = vec3(0.045, 0.05, 0.045) * (0.15 + 1.6 * dayL) + sunCol * 0.04 * dayL;
-    col = mix(col * 0.55, g, smoothstep(0.0, 1.0, depth));
+    float d = clamp((hz - viewAlt) * 0.35, 0.0, 1.0);
+    vec3 g = vec3(0.045, 0.05, 0.045) * (0.15 + 1.6 * dayL) + sunCol * 0.04 * dayL + vec3(0.008, 0.01, 0.018);
+    col = mix(col * 0.55, g, smoothstep(0.0, 1.0, d));
   }
   col = mix(col, vec3(0.55, 0.57, 0.6) * (0.08 + 0.9 * dayL), uFog * (ground ? 0.5 : 0.7) * (1.0 - clamp(rd.y * 2.0, 0.0, 0.7)));
-  col = 1.0 - exp(-col * mix(2.2, 1.15, dayL));
+  col = 1.0 - exp(-col * mix(2.4, 1.15, dayL));
   col *= uDim;
   col += (hash2(gl_FragCoord.xy + fract(uTime)) - 0.5) / 255.0;
   gl_FragColor = vec4(col, 1.0);
@@ -146,7 +196,7 @@ void main() {
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
       const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
       this.u = {};
-      for (const n of ['uRes', 'uR', 'uU', 'uF', 'uFocal', 'uSun', 'uTime', 'uCloud', 'uFog', 'uStars', 'uWind', 'uEq', 'uHorizon', 'uDim'])
+      for (const n of ['uRes', 'uR', 'uU', 'uF', 'uFocal', 'uSun', 'uTime', 'uCloud', 'uFog', 'uStars', 'uWind', 'uEq', 'uHorizon', 'uDim', 'uMoon', 'uMoonFrac'])
         this.u[n] = gl.getUniformLocation(pr, n);
       this.tex = gl.createTexture();
       this.setHorizon(null);
@@ -186,6 +236,8 @@ void main() {
       gl.uniform1f(this.u.uFog, o.fog || 0);
       gl.uniform1f(this.u.uStars, o.stars ?? 1);
       gl.uniform1f(this.u.uDim, o.dim ?? 1);
+      gl.uniform3fv(this.u.uMoon, v(o.moon || [0, 0, -1]));
+      gl.uniform1f(this.u.uMoonFrac, o.moonFrac || 0);
       gl.uniform2fv(this.u.uWind, o.wind || [0.01, 0.004]);
       gl.uniformMatrix3fv(this.u.uEq, false, o.eq);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tex); gl.uniform1i(this.u.uHorizon, 0);

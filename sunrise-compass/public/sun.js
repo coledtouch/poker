@@ -86,5 +86,12 @@
   }
   // Local sidereal time in radians (for rotating the star field)
   const lst = (date, lng) => siderealTime(toDays(date), rad * -lng);
-  global.Sun = { position, times, moonPosition, moonIllumination, lst };
+  // Equatorial (RA/Dec, radians) -> local horizon (compass azimuth deg, altitude deg)
+  function equToHor(ra, dec, date, lat, lng) {
+    const lw = rad * -lng, phi = rad * lat, H = siderealTime(toDays(date), lw) - ra;
+    let alt = altitude(H, phi, dec) / rad;
+    if (alt > -2) alt += 1.02 / Math.tan(rad * (alt + 10.3 / (alt + 5.11))) / 60;
+    return { azimuth: (((azimuth(H, phi, dec) / rad + 180) % 360) + 360) % 360, altitude: alt };
+  }
+  global.Sun = { position, times, moonPosition, moonIllumination, lst, equToHor };
 })(self);

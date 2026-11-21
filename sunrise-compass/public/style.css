@@ -58,7 +58,7 @@ body.live #topbar { transform: none; }
 .iconbtn.active { background: var(--sun); color: #201303; border-color: transparent; }
 
 #toast {
-  position: fixed; top: calc(env(safe-area-inset-top) + 78px); left: 50%; transform: translate(-50%, -8px);
+  position: fixed; top: calc(env(safe-area-inset-top) + 160px); left: 50%; transform: translate(-50%, -8px);
   background: var(--glass-strong); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border: 1px solid var(--line); padding: 9px 15px; border-radius: 14px; font-size: 13px; max-width: 88vw; text-align: center;
 }
@@ -88,8 +88,12 @@ body.live #panel { transform: none; transition-delay: .15s; }
 #heroMain b { color: var(--sun); font-weight: 600; }
 #heroSub { font-size: 13px; color: var(--muted); margin-top: 2px; }
 #pointing { margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.05); }
-#pointText { font-size: 15px; font-weight: 500; min-height: 2.76em; transition: opacity .25s; }
+#pointText { font-size: 15px; font-weight: 500; min-height: 2.9em; transition: opacity .25s; }
 #pointText b { color: var(--sun); font-weight: 700; }
+#pointText .big { font-size: 17px; font-weight: 700; letter-spacing: -.2px; }
+#pointText .dim { font-size: 13px; margin-top: 2px; }
+.iconbtn.find { color: var(--sun); }
+.iconbtn.find.active { color: #201303; }
 #pointText .dim { color: var(--muted); }
 .more { overflow: hidden; max-height: 420px; transition: max-height .5s var(--ease), opacity .4s; }
 #panel.collapsed .more { max-height: 0; opacity: 0; }

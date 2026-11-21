@@ -194,6 +194,16 @@
   function dayData() {
     const base = selectedBaseDate();
     if (state.day && state.day.key === base.getTime()) return state.day;
+    state.day = computeDay(base);
+    return state.day;
+  }
+  function nextDayData() {
+    const base = selectedBaseDate(); base.setDate(base.getDate() + 1);
+    if (state.day2 && state.day2.key === base.getTime() && state.day2.hz === !!state.hz) return state.day2;
+    state.day2 = computeDay(base); state.day2.hz = !!state.hz;
+    return state.day2;
+  }
+  function computeDay(base) {
     const { lat, lng } = state;
     const times = Sun.times(base, lat, lng);
     const samples = [];
@@ -216,12 +226,20 @@
         m += Math.abs(ua) > 3 ? 4 : 0;
       }
     }
-    state.day = {
+    return {
       key: base.getTime(), times, samples, peak,
       rise: pos(times.sunrise), set: pos(times.sunset), noon: pos(times.solarNoon),
       tRise, tSet,
     };
-    return state.day;
+  }
+  // Next time the (visible) sun is in compass direction hdg, looking from the selected time forward.
+  function nextSunAt(hdg, day, tSel) {
+    const pick = d => crossingsAt(hdg, d).filter(c => c.alt > horizonAt(hdg) - 0.3 && c.t >= tSel - 5 * 60000);
+    let c = pick(day);
+    if (c.length) return { ...c[0], when: 'today' };
+    c = pick(nextDayData());
+    if (c.length) return { ...c[0], when: 'tomorrow' };
+    return null;
   }
   function crossingsAt(hdg, day) {
     const out = [], S = day.samples;
@@ -482,6 +500,126 @@
     ctx.restore();
   }
 
+  // ---------- sun ribbon: the sun's path laid out on a compass strip ----------
+  function ribbonRect() {
+    const top = $('topbar').getBoundingClientRect().bottom + 4;
+    return { x: 10, y: top, w: W - 20, h: 58 };
+  }
+  function drawRibbon(day, tSel, sunSel, now) {
+    const R = ribbonRect(), hdg = cameraHeading(), cx = R.x + R.w / 2;
+    const span = 140, ppd = R.w / span;
+    const X = az => cx + wrap180(az - hdg) * ppd;
+    const inR = x => x > R.x + 6 && x < R.x + R.w - 6;
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(R.x, R.y, R.w, R.h, 16);
+    ctx.fillStyle = 'rgba(12,14,30,.55)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.clip();
+    const base = R.y + R.h - 14;
+    // compass ticks
+    for (let a = 0; a < 360; a += 5) {
+      const x = X(a); if (!inR(x)) continue;
+      const major = a % 45 === 0;
+      ctx.beginPath(); ctx.moveTo(x, base + 6); ctx.lineTo(x, base + (major ? -2 : a % 15 ? 3 : 1));
+      ctx.strokeStyle = major ? 'rgba(255,255,255,.7)' : 'rgba(255,255,255,.3)'; ctx.stroke();
+      if (major) text(DIRS[a / 22.5], x, base + 9, { color: a === 0 ? '#ff8a7a' : 'rgba(255,255,255,.85)', size: 9.5, weight: 800, shadow: false });
+    }
+    // the sun's daytime track, coloured by height in the sky
+    const S = day.samples, ty = R.y + 24;
+    for (let i = 1; i < S.length; i++) {
+      const a = S[i - 1], b = S[i];
+      if (b.alt < -0.8 && a.alt < -0.8) continue;
+      const xa = X(a.az), xb = X(b.az);
+      if (Math.abs(xa - xb) > R.w / 2) continue;
+      const hi = clamp(Math.max(a.alt, b.alt) / 40, 0, 1);
+      ctx.strokeStyle = `rgb(255,${Math.round(130 + 100 * hi)},${Math.round(60 + 110 * hi)})`;
+      ctx.lineWidth = 6; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(xa, ty); ctx.lineTo(xb, ty); ctx.stroke();
+    }
+    // hour labels along the track
+    let lastX = -1e9;
+    for (const s2 of S) {
+      if (s2.m % 60 || s2.alt < -0.8) continue;
+      const x = X(s2.az); if (!inR(x) || Math.abs(x - lastX) < 26) continue; lastX = x;
+      ctx.beginPath(); ctx.arc(x, ty, 2.5, 0, Math.PI * 2); ctx.fillStyle = '#2a1a08'; ctx.fill();
+      text(fmtShort(s2.t), x, ty - 12, { color: 'rgba(255,240,215,.9)', size: 10, weight: 700, shadow: false });
+    }
+    // sunrise / sunset ends
+    const T = day.times;
+    for (const [ev, pos, t, c] of [[day.tRise, day.rise, T.sunrise, '#ff9a4d'], [day.tSet, day.set, T.sunset, '#ff6b88']]) {
+      const az = ev ? ev.az : pos && pos.azimuth; if (az == null || !t) continue;
+      const x = X(az); if (!inR(x)) continue;
+      ctx.beginPath(); ctx.arc(x, ty, 5, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill();
+    }
+    // the sun at the selected time
+    if (sunSel.altitude > -0.8) {
+      const x = X(sunSel.azimuth);
+      if (inR(x)) {
+        const g = ctx.createRadialGradient(x, ty, 0, x, ty, 16);
+        g.addColorStop(0, 'rgba(255,252,230,1)'); g.addColorStop(0.35, 'rgba(255,200,90,.95)'); g.addColorStop(1, 'rgba(255,170,60,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, ty, 16 * (1 + 0.08 * Math.sin(now / 300)), 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+    // centre pointer
+    ctx.save();
+    ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 4;
+    ctx.beginPath(); ctx.moveTo(cx - 7, R.y - 1); ctx.lineTo(cx + 7, R.y - 1); ctx.lineTo(cx, R.y + 8); ctx.closePath(); ctx.fill();
+    ctx.fillRect(cx - 0.75, R.y + 6, 1.5, R.h - 6);
+    ctx.restore();
+  }
+
+  // ---------- find-the-sun guidance ----------
+  let findOn = false, locked = false;
+  function drawFinder(day, tSel, sunSel, now) {
+    if (!findOn) return;
+    let target, label;
+    const up = sunSel.altitude > horizonAt(sunSel.azimuth) - 0.3;
+    if (up) { target = sunSel; label = state.scrubMin == null && state.dayOffset === 0 ? 'the sun' : `the sun at ${fmtTime(tSel)}`; }
+    else {
+      const nd = tSel < (day.tRise ? day.tRise.t : day.times.sunrise) ? day : nextDayData();
+      const ev = nd.tRise || (nd.rise && { az: nd.rise.azimuth, t: nd.times.sunrise });
+      if (!ev) return;
+      target = { azimuth: ev.az, altitude: horizonAt(ev.az) }; label = `sunrise · ${fmtTime(ev.t)}`;
+    }
+    const hdg = cameraHeading(), pitch = cameraPitch();
+    const dAz = wrap180(target.azimuth - hdg), dAlt = target.altitude - pitch;
+    const off = Math.hypot(dAz, state.view === 'map' ? 0 : dAlt);
+    const cx = W / 2, cy = H / 2;
+    if (off < 5) {
+      if (!locked) { locked = true; try { navigator.vibrate && navigator.vibrate([40, 60, 40]); } catch (_) {} }
+      const r = 34 + 6 * Math.sin(now / 200);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,214,120,.95)'; ctx.lineWidth = 3; ctx.shadowColor = 'rgba(255,180,60,1)'; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+      pill(up ? `☀️  You found ${label}` : `🌅  Here's tomorrow's ${label}`, cx, cy + 66, '#ffd877');
+      return;
+    }
+    if (off > 9) locked = false;
+    // big arrow toward the target
+    let ang;
+    if (state.view === 'map' || Math.abs(dAz) > 25) ang = dAz > 0 ? 0 : Math.PI;
+    else { const p = project(dirVec(target.azimuth, target.altitude)); ang = p.behind ? Math.atan2(-dAlt, dAz) : Math.atan2(p.y - cy, p.x - cx); }
+    const bob = 6 * Math.sin(now / 250);
+    ctx.save(); ctx.translate(cx + Math.cos(ang) * (60 + bob), cy + Math.sin(ang) * (60 + bob)); ctx.rotate(ang);
+    ctx.shadowColor = 'rgba(255,170,60,.9)'; ctx.shadowBlur = 16;
+    ctx.fillStyle = '#ffc456';
+    ctx.beginPath(); ctx.moveTo(26, 0); ctx.lineTo(-6, -20); ctx.lineTo(0, 0); ctx.lineTo(-6, 20); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    const turn = Math.abs(dAz) >= 3 ? `Turn ${Math.abs(Math.round(dAz))}° ${dAz > 0 ? 'right' : 'left'}` : '';
+    const tilt = state.view !== 'map' && Math.abs(dAlt) >= 4 ? `tilt ${dAlt > 0 ? 'up' : 'down'} ${Math.abs(Math.round(dAlt))}°` : '';
+    pill([turn, tilt].filter(Boolean).join(' · ').replace(/^t/, 'T') + `  →  ${label}`, cx, cy + 66, '#fff');
+  }
+  function pill(str, x, y, color) {
+    ctx.save();
+    ctx.font = `700 15px ${FONT}`;
+    const w = Math.min(W - 24, ctx.measureText(str).width + 30);
+    ctx.fillStyle = 'rgba(12,14,30,.72)'; ctx.beginPath(); ctx.roundRect(x - w / 2, y - 18, w, 36, 18); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,214,120,.5)'; ctx.lineWidth = 1; ctx.stroke();
+    text(str, x, y + 1, { color, size: 15, weight: 700, shadow: false });
+    ctx.restore();
+  }
+
   // ---------- sky view overlay ----------
   function drawSkyOverlay(day, tSel, sunSel, now) {
     const intro = ease((now - state.shownAt) / 1600);
@@ -598,7 +736,7 @@
     ctx.stroke(); ctx.restore();
 
     // edge guides for off-screen targets
-    const top = $('topbar').getBoundingClientRect().bottom + 24;
+    const top = ribbonRect().y + ribbonRect().h + 4;
     const bottom = $('panel').getBoundingClientRect().top - 30;
     let slot = 0;
     const guide = (az, alt, name, color) => {
@@ -614,6 +752,7 @@
       ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 10; ctx.fill(); ctx.restore();
       text(`${name} · ${Math.abs(delta)}° ${right ? 'right' : 'left'}`, right ? x - 18 : x + 18, y, { color, size: 13, weight: 700, align: right ? 'right' : 'left' });
     };
+    if (findOn) return;
     guide(day.tRise ? day.tRise.az : day.rise && day.rise.azimuth, day.tRise ? horizonAt(day.tRise.az) : 0, 'Sunrise', '#ff9a4d');
     if (sunSel.altitude > -6) guide(sunSel.azimuth, sunSel.altitude, 'Sun', '#ffd877');
     guide(day.tSet ? day.tSet.az : day.set && day.set.azimuth, day.tSet ? horizonAt(day.tSet.az) : 0, 'Sunset', '#ff6b88');
@@ -779,22 +918,22 @@
     setQ($('heroQ'), q);
 
     let html;
-    if (state.view === 'map') {
-      const cr = crossingsAt(hdg, day);
-      html = cr.length ? `Facing ${Math.round(hdg)}° ${compassName(hdg)} — the sun is in this direction at ${cr.map(c => `<b>${fmtTime(c.t)}</b>`).join(' and ')}`
-        : `Facing ${Math.round(hdg)}° ${compassName(hdg)} — <span class="dim">no sun from this direction today</span>`;
-    } else {
-      const near = nearestPathPoint(basis.fwd, day), cr = crossingsAt(hdg, day);
-      if (near && near.ang < 7) {
-        const blocked = near.s.alt < horizonAt(near.s.az);
-        html = `The sun will be right here at <b>${fmtTime(near.s.t)}</b> <span class="dim">${Math.round(near.s.alt)}° up${relTime(near.s.t)}${blocked ? ' · behind terrain' : ''}</span>`;
-      } else if (cr.length) {
-        html = `Sun shines from ${Math.round(hdg)}° ${compassName(hdg)} at ${cr.map(c => `<b>${fmtTime(c.t)}</b> <span class="dim">(${Math.max(0, Math.round(c.alt))}° up)</span>`).join(' and ')}` + (cr.every(c => c.alt < 6) ? ' — golden light' : '');
+    {
+      const facingSun = sunSel.altitude > horizonAt(sunSel.azimuth) - 0.3 && Math.abs(wrap180(sunSel.azimuth - hdg)) < 8;
+      const dirName = `${Math.round(hdg)}° ${compassName(hdg)}`;
+      const nx = nextSunAt(hdg, day, tSel);
+      const dayWord = d => state.dayOffset === 0 ? (d === 'today' ? 'today' : 'tomorrow') : (d === 'today' ? 'that day' : 'the next day');
+      if (facingSun) {
+        html = `<div class="big">☀️ You're facing the sun${live ? '' : ' at ' + fmtTime(tSel)}</div><div class="dim">It's ${Math.round(sunSel.altitude)}° above the horizon · sets ${fmtTime(setT)}</div>`;
+      } else if (nx) {
+        const rel = live ? relTime(nx.t).replace(' · ', '') : '';
+        const golden = nx.alt < 6 ? ' · golden light' : '';
+        html = `<div class="big">Sun shines this way at <b>${fmtTime(nx.t)}</b> ${dayWord(nx.when)}</div><div class="dim">${dirName} · ${Math.max(0, Math.round(nx.alt))}° above the horizon${rel ? ' · ' + rel : ''}${golden}</div>`;
       } else if (riseT) {
         const dr = wrap180(riseAz - hdg), ds = wrap180(setAz - hdg);
         const [nm, dd] = Math.abs(dr) < Math.abs(ds) ? ['sunrise', dr] : ['sunset', ds];
-        html = `<span class="dim">No sun from this direction today.</span> Turn <b>${Math.abs(Math.round(dd))}° ${dd > 0 ? 'right' : 'left'}</b> for the ${nm}.`;
-      } else html = day.peak.alt > 0 ? 'The sun circles the sky all day here.' : 'The sun stays below the horizon all day here.';
+        html = `<div class="big">No sun from ${dirName}</div><div class="dim">Turn <b>${Math.abs(Math.round(dd))}° ${dd > 0 ? 'right' : 'left'}</b> to face the ${nm}, or tap ☀ to find the sun</div>`;
+      } else html = `<div class="big">${day.peak.alt > 0 ? 'The sun circles the sky all day here' : 'The sun stays below the horizon all day'}</div>`;
     }
     setHTML($('pointText'), html);
 
@@ -890,6 +1029,8 @@
     } else {
       drawMap(day, tSel, sunSel, now);
     }
+    drawFinder(day, tSel, sunSel, now);
+    drawRibbon(day, tSel, sunSel, now);
     updatePanel(day, tSel, sunSel, now);
   }
 
@@ -906,6 +1047,11 @@
     video.style.visibility = state.view === 'map' ? 'hidden' : 'visible';
     updateFoot(); lastPanel = 0;
   }
+  $('btnFind').onclick = () => {
+    findOn = !findOn; locked = false;
+    $('btnFind').classList.toggle('active', findOn);
+    if (findOn) { $('panel').classList.add('collapsed'); toast(state.sensor ? 'Follow the arrow to the sun' : 'Drag the sky to follow the arrow', 2200); }
+  };
   $('btnView').onclick = () => { state.view = state.view === 'sky' ? 'map' : 'sky'; applyView(); };
   $('btnCam').onclick = async () => { await setCamera(!state.camOn); if (state.camOn && state.view === 'map') state.view = 'sky'; applyView(); };
   $('handle').onclick = () => { const c = $('panel').classList.toggle('collapsed'); try { localStorage.setItem('panel', c ? 'c' : 'o'); } catch (_) {} };

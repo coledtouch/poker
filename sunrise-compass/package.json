@@ -1,0 +1,6 @@
+{
+  "name": "sunrise-compass",
+  "private": true,
+  "scripts": { "dev": "node build.mjs && wrangler dev", "build": "node build.mjs", "deploy": "node build.mjs && wrangler deploy" },
+  "devDependencies": { "wrangler": "^4.0.0" }
+}

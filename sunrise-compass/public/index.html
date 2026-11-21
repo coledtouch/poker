@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Sunrise Compass</title>
+<meta name="description" content="Point your phone around you to see where and when the sun rises, sets and shines from your exact location.">
+<meta name="theme-color" content="#0b0f1e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sunrise">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="sky"></div>
+<video id="cam" playsinline muted autoplay></video>
+<canvas id="overlay"></canvas>
+
+<header id="topbar" hidden>
+  <div id="heading"><span id="hdgDeg">—</span><span id="hdgDir"></span></div>
+  <div id="elev"></div>
+  <div class="tools">
+    <button id="btnView" class="pill" aria-label="Switch view">Map</button>
+    <button id="btnCam" class="pill" aria-label="Toggle camera">Cam</button>
+  </div>
+</header>
+
+<div id="toast" hidden></div>
+
+<section id="panel" hidden>
+  <div id="pointing">
+    <div class="label">In the direction you're facing</div>
+    <div id="pointText">Turn slowly to find the sun's path</div>
+  </div>
+  <div class="grid">
+    <div class="cell rise"><div class="k">Sunrise</div><div class="v" id="tRise">—</div><div class="s" id="aRise"></div></div>
+    <div class="cell noon"><div class="k">Highest</div><div class="v" id="tNoon">—</div><div class="s" id="aNoon"></div></div>
+    <div class="cell set"><div class="k">Sunset</div><div class="v" id="tSet">—</div><div class="s" id="aSet"></div></div>
+  </div>
+  <div class="golden" id="golden"></div>
+  <div class="scrub">
+    <button id="dayPrev" class="mini" aria-label="Previous day">‹</button>
+    <div class="scrubmid">
+      <div class="scrubhead"><span id="dayLabel">Today</span><span id="timeLabel">Now</span><button id="btnNow" class="mini now" hidden>Now</button></div>
+      <input id="timeRange" type="range" min="0" max="1439" step="1" value="720" aria-label="Time of day">
+    </div>
+    <button id="dayNext" class="mini" aria-label="Next day">›</button>
+  </div>
+  <div class="foot" id="loc">Locating…</div>
+</section>
+
+<section id="intro">
+  <div class="sunlogo"></div>
+  <h1>Sunrise Compass</h1>
+  <p>Hold your phone up in front of you and turn around. You'll see the sun's path across your sky, where it rises and sets, and what time it shines from any direction you point.</p>
+  <button id="btnStart" class="primary">Start</button>
+  <p class="fine">Uses your location, compass and (optionally) camera. Nothing leaves your device.</p>
+  <p class="fine err" id="introErr"></p>
+</section>
+
+<script src="sun.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

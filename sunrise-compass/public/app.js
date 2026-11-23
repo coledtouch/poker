@@ -14,7 +14,7 @@
     dayOffset: 0, scrubMin: null,
     fovLong: 66 * D2R,
     day: null, place: null, wx: null, hz: null,
-    shownAt: 0,
+    shownAt: 0, userOff: 0,
   };
 
   // ---------- helpers ----------
@@ -88,13 +88,34 @@
   const cameraPitch = () => Math.asin(clamp(-state.Z[2], -1, 1)) * R2D;
 
   let gotEvent = false;
+  // iOS: e.alpha is relative (arbitrary zero) but consistent with beta/gamma, while webkitCompassHeading
+  // is a true heading. Combining the compass heading directly with beta/gamma breaks when the phone is held
+  // upright (Euler gimbal lock at beta≈90°, where iOS trades alpha against gamma). Instead we learn a stable
+  // yaw offset that maps the relative frame onto true north, and only update it in poses where it is reliable.
+  let iosOff = null, iosGood = false;
+  function relHeadings(alpha, beta, gamma) {
+    const cA = Math.cos(alpha * D2R), sA = Math.sin(alpha * D2R), cB = Math.cos(beta * D2R), sB = Math.sin(beta * D2R);
+    const cG = Math.cos(gamma * D2R), sG = Math.sin(gamma * D2R);
+    const top = Math.atan2(-cB * sA, cA * cB) * R2D;
+    const cam = Math.atan2(-(cG * sA * sB + cA * sG), -(sA * sG - cA * cG * sB)) * R2D;
+    return { top, cam };
+  }
+  function iosAlpha(e) {
+    const wch = e.webkitCompassHeading, b = e.beta, g = e.gamma;
+    const rel = relHeadings(e.alpha, b, g);
+    let cand = null, k = 0;
+    if (b > 15 && b < 70 && Math.abs(g) < 25) { cand = rel.top - wch; k = 0.2; iosGood = true; }          // tilted, unambiguous
+    else if (b >= 70 && b <= 110 && Math.abs(g) < 12) { cand = rel.cam - wch; k = iosGood ? 0.03 : 0.2; } // upright, little roll
+    if (cand != null) iosOff = iosOff == null ? wrap360(cand) : wrap360(iosOff + wrap180(cand - iosOff) * k);
+    return iosOff == null ? null : e.alpha + iosOff;
+  }
   function onOrient(e) {
     let alpha = e.alpha;
-    if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) alpha = 360 - e.webkitCompassHeading;
+    if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading) && e.alpha != null) alpha = iosAlpha(e);
     else if (e.type === 'deviceorientation' && e.absolute !== true && 'ondeviceorientationabsolute' in window) return;
     if (alpha == null || e.beta == null || e.gamma == null) return;
     if (!gotEvent) { gotEvent = true; state.sensor = true; hideToast(); updateFoot(); }
-    setFromEuler(alpha, e.beta, e.gamma);
+    setFromEuler(alpha + state.userOff, e.beta, e.gamma);
   }
   async function startSensors() {
     try {
@@ -572,6 +593,9 @@
   // ---------- find-the-sun guidance ----------
   let findOn = false, locked = false;
   function drawFinder(day, tSel, sunSel, now) {
+    const canAlign = findOn && state.sensor && state.view === 'sky' && state.scrubMin == null && state.dayOffset === 0
+      && sunSel.altitude > horizonAt(sunSel.azimuth) + 1;
+    if ($('btnAlign').hidden === canAlign) $('btnAlign').hidden = !canAlign;
     if (!findOn) return;
     let target, label;
     const up = sunSel.altitude > horizonAt(sunSel.azimuth) - 0.3;
@@ -1047,6 +1071,12 @@
     video.style.visibility = state.view === 'map' ? 'hidden' : 'visible';
     updateFoot(); lastPanel = 0;
   }
+  $('btnAlign').onclick = () => {
+    const sun = Sun.position(new Date(), state.lat, state.lng);
+    state.userOff = wrap360(state.userOff + wrap180(cameraHeading() - sun.azimuth));
+    locked = false; $('btnAlign').hidden = true;
+    toast('Compass aligned to the sun ✓', 2200);
+  };
   $('btnFind').onclick = () => {
     findOn = !findOn; locked = false;
     $('btnFind').classList.toggle('active', findOn);

@@ -161,3 +161,8 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border: 0; bord
 @keyframes ring { 0% { opacity: .9; transform: scale(.96); } 100% { opacity: 0; transform: scale(1.18); } }
 [hidden] { display: none !important; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .introInner > * { opacity: 1; transform: none; } }
+
+#btnAlign { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom) + 190px);
+  max-width: 86vw; padding: 9px 16px; border-radius: 999px; font-size: 12.5px; font-weight: 600; text-align: center;
+  background: rgba(12,14,30,.7); border: 1px solid rgba(255,214,120,.45); color: #ffe2a8;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }

@@ -43,7 +43,7 @@
 
   // ---------- sky renderer ----------
   let sky = null;
-  try { sky = new Sky($('sky'), 0.65); $('skyFallback').hidden = true; } catch (e) { $('sky').hidden = true; }
+  try { sky = new Sky($('sky'), self.SKY_SCALE || 0.65); $('skyFallback').hidden = true; } catch (e) { $('sky').hidden = true; }
 
   // ---------- orientation ----------
   function setFromEuler(alpha, beta, gamma) {

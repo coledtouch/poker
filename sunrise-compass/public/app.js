@@ -153,6 +153,7 @@
   function loadLocal() {
     const { lat, lng } = state;
     Geo.place(lat, lng).then(p => { state.place = p; renderPlace(); }).catch(() => {});
+    setTimeout(prefetchTiles, 1500);
     Geo.weather(lat, lng).then(w => { state.wx = w; renderWx(); lastPanel = 0; }).catch(() => {});
     Geo.horizon(lat, lng).then(h => {
       state.hz = h.angles; state.elevation = h.elevation; state.day = null;
@@ -783,18 +784,41 @@
   }
 
   // ---------- map view (satellite + dial) ----------
+  // Satellite tiles: LRU cache (tiles in view are touched every frame so they are never evicted),
+  // requested nearest-first, and pre-fetched as soon as we know where you are.
+  const TILE_Z = 17, TILE_CACHE = 600;
   const tiles = new Map();
   function tile(z, x, y) {
     const n = 1 << z; x = ((x % n) + n) % n;
     const k = `${z}/${y}/${x}`;
     let t = tiles.get(k);
-    if (!t) {
+    if (t) { tiles.delete(k); tiles.set(k, t); }
+    else {
       t = new Image(); t.crossOrigin = 'anonymous'; t.decoding = 'async';
+      t.onload = () => { t.loadedAt = performance.now(); };
       t.src = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${k}`;
       tiles.set(k, t);
-      if (tiles.size > 300) tiles.delete(tiles.keys().next().value);
+      while (tiles.size > TILE_CACHE) tiles.delete(tiles.keys().next().value);
     }
     return t.complete && t.naturalWidth ? t : null;
+  }
+  function tileCenter(z) {
+    const n = 1 << z, latR = state.lat * D2R;
+    return { wx: (state.lng + 180) / 360 * n * 256, wy: (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n * 256 };
+  }
+  // tiles touching a circle of `radius` px around you (the view rotates, so a circle covers every heading)
+  function tilesInView(z, radius) {
+    const { wx, wy } = tileCenter(z), out = [];
+    for (let ty = Math.floor((wy - radius) / 256); ty <= Math.floor((wy + radius) / 256); ty++)
+      for (let tx = Math.floor((wx - radius) / 256); tx <= Math.floor((wx + radius) / 256); tx++) {
+        const dx = clamp(wx, tx * 256, tx * 256 + 256) - wx, dy = clamp(wy, ty * 256, ty * 256 + 256) - wy;
+        if (dx * dx + dy * dy <= radius * radius) out.push({ tx, ty, d: Math.hypot(tx * 256 + 128 - wx, ty * 256 + 128 - wy) });
+      }
+    return out.sort((a, b) => a.d - b.d);
+  }
+  function prefetchTiles() {
+    if (state.lat == null) return;
+    for (const t of tilesInView(TILE_Z, Math.hypot(W, H) / 2 + 16)) tile(TILE_Z, t.tx, t.ty);
   }
   function drawMap(day, tSel, sunSel, now) {
     const hdg = cameraHeading();
@@ -804,20 +828,18 @@
     const R = Math.max(70, Math.min(W / 2 - 50, (panelTop - topBar) / 2 - 46));
 
     // satellite imagery, rotated so you're facing up
-    const z = 17, n = 1 << z;
-    const wx = (state.lng + 180) / 360 * n * 256;
-    const latR = state.lat * D2R;
-    const wy = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n * 256;
+    const z = TILE_Z, { wx, wy } = tileCenter(z);
     ctx.save();
     ctx.fillStyle = '#0a0d18'; ctx.fillRect(0, 0, W, H);
     ctx.translate(cx, cy); ctx.rotate(-hdg * D2R);
     const reach = Math.hypot(W, H);
-    const tx0 = Math.floor((wx - reach) / 256), tx1 = Math.floor((wx + reach) / 256);
-    const ty0 = Math.floor((wy - reach) / 256), ty1 = Math.floor((wy + reach) / 256);
-    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+    for (const { tx, ty } of tilesInView(z, Math.hypot(W, H) / 2 + 16)) {
       const img = tile(z, tx, ty);
-      if (img) ctx.drawImage(img, tx * 256 - wx, ty * 256 - wy, 256.5, 256.5);
+      if (!img) continue;
+      ctx.globalAlpha = img.loadedAt ? clamp((now - img.loadedAt) / 250, 0, 1) : 1;
+      ctx.drawImage(img, tx * 256 - wx, ty * 256 - wy, 256.5, 256.5);
     }
+    ctx.globalAlpha = 1;
     ctx.restore();
     const day01 = clamp((sunSel.altitude + 8) / 20, 0, 1);
     ctx.fillStyle = `rgba(6,8,20,${0.55 - 0.3 * day01})`; ctx.fillRect(0, 0, W, H);

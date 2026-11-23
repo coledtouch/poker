@@ -1031,6 +1031,7 @@
     ctx.clearRect(0, 0, W, H);
 
     if (!state.live) { // intro: a slow sunrise over your own horizon
+      if (self.GL_MIN_MS && now - (self._glT || -1e9) < self.GL_MIN_MS) return; self._glT = now;
       const t = (now - introT0) / 1000;
       const hdg = state.day && state.day.rise ? state.day.rise.azimuth : 112;
       const pose = poseFromHeading(hdg + Math.sin(t * 0.05) * 3, 7);
@@ -1047,7 +1048,7 @@
     const sunSel = Sun.position(tSel, state.lat, state.lng);
     const hdg = cameraHeading();
     if (state.view === 'sky') {
-      if (!state.camOn) renderSky(state, sunSel, tSel, now);
+      if (!state.camOn && !(self.GL_MIN_MS && now - (self._glT || -1e9) < self.GL_MIN_MS)) { self._glT = now; renderSky(state, sunSel, tSel, now); }
       drawParticles(dt, hdg);
       drawSkyOverlay(day, tSel, sunSel, now);
     } else {
